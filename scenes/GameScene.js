@@ -105,6 +105,19 @@ class GameScene extends Phaser.Scene {
     this.scene.launch('UIScene', { mode: this.mode, dayNumber: this.mode === 'daily' ? PWC.daily.dayNumber() : 0 });
     this.scene.bringToTop('UIScene');
 
+    // Debug overlay (URL param). Real-device QA hook.
+    if (this._isDebug()) {
+      this.debugText = this.add.text(8, 8, '', {
+        fontFamily: 'monospace', fontSize: '11px', color: '#5cf3ff',
+        backgroundColor: 'rgba(0,0,0,0.4)', padding: { x: 4, y: 2 },
+      }).setDepth(95).setScrollFactor(0);
+    }
+
+    // Auto-degrade state — particle/trail density reduces if sustained low fps.
+    this._fpsAccum = 0;
+    this._fpsLowSeconds = 0;
+    this._degraded = false;
+
     // First-ever-play onboarding overlay (only on very first run).
     const isFirstEver = !PWC.storage.get('hasPlayed');
     if (isFirstEver) {
@@ -223,39 +236,23 @@ class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------------
-  // COURT + WALL FX (unchanged structure, kept tight)
+  // COURT + WALL FX
+  // The court panel is a baked texture tinted per wave — no Graphics
+  // redraw cost on wave transitions.
   // ---------------------------------------------------------------------
   drawCourt() {
-    const W = this.W, H = this.H;
     const c = PWC.config.court;
     const C = PWC.colors;
 
     this.bgGfx = this.add.graphics().setDepth(-10);
-    this.courtPanel = this.add.graphics().setDepth(-9);
-    this.repaintCourt(C.court);
-  }
+    this.bgGfx.fillStyle(C.bg, 1).fillRect(0, 0, this.W, this.H);
 
-  repaintCourt(courtColor) {
-    const W = this.W, H = this.H;
-    const c = PWC.config.court;
-    const C = PWC.colors;
-    this.bgGfx.clear();
-    this.bgGfx.fillStyle(C.bg, 1).fillRect(0, 0, W, H);
-    this.courtPanel.clear();
-    this.courtPanel.fillStyle(courtColor, 1);
-    this.courtPanel.fillRoundedRect(c.left - 12, c.top - 12, (c.right - c.left) + 24, (c.bottom - c.top) + 24, 18);
-    for (let i = 0; i < 60; i++) {
-      this.courtPanel.fillStyle(C.courtAccent, (1 - i / 60) * 0.10);
-      this.courtPanel.fillRect(c.left, c.top + i, c.right - c.left, 1);
-    }
-    for (let y = c.top + 24; y < c.bottom - 24; y += 18) {
-      this.courtPanel.fillStyle(0xffffff, 0.07);
-      this.courtPanel.fillRect((c.left + c.right) / 2 - 1, y, 2, 8);
-    }
-    this.courtPanel.lineStyle(2, 0xffffff, 0.22);
-    this.courtPanel.strokeRoundedRect(c.left, c.top, c.right - c.left, c.bottom - c.top, 6);
-    this.courtPanel.fillStyle(0xffffff, 0.05);
-    this.courtPanel.fillRect(c.left, c.bottom - 1, c.right - c.left, 2);
+    this.courtPanelImg = this.add.image(c.left - 12, c.top - 12, 'court_panel')
+      .setOrigin(0, 0).setTint(C.court).setDepth(-9);
+    this.courtLinesImg = this.add.image(c.left, c.top, 'court_lines')
+      .setOrigin(0, 0).setDepth(-8);
+
+    this._currentCourtTint = C.court;
   }
 
   makeWallFlash(side) {
@@ -514,6 +511,42 @@ class GameScene extends Phaser.Scene {
       const near = Phaser.Math.Clamp(1 - dist / 500, 0, 1);
       if (!this.touchActive) this.racketGlow.setAlpha(0.18 + near * 0.35);
     }
+
+    // Auto-degrade: sample fps every 0.5s. If under 50fps for 2s sustained,
+    // halve trail emission and reduce particle counts. Self-healing.
+    this._fpsAccum += dt;
+    if (this._fpsAccum >= 0.5) {
+      this._fpsAccum = 0;
+      const fps = this.game.loop.actualFps;
+      if (fps < 50) this._fpsLowSeconds += 0.5;
+      else this._fpsLowSeconds = Math.max(0, this._fpsLowSeconds - 0.5);
+      if (this._fpsLowSeconds >= 2 && !this._degraded) {
+        this._degraded = true;
+        if (this.trail) this.trail.frequency = 30;
+      } else if (this._fpsLowSeconds <= 0 && this._degraded) {
+        this._degraded = false;
+        if (this.trail) this.trail.frequency = 14;
+      }
+    }
+
+    // Debug overlay
+    if (this.debugText) {
+      const v = this.ball ? Math.hypot(this.ball.body.velocity.x, this.ball.body.velocity.y) : 0;
+      this.debugText.setText([
+        `fps ${Math.round(this.game.loop.actualFps)}`,
+        `state ${this.state}`,
+        `mode ${this.mode}`,
+        `wave ${this.wave}`,
+        `combo ${this.combo}`,
+        `ball ${Math.round(v)}`,
+        `degraded ${this._degraded ? 'Y' : 'N'}`,
+      ].join('  '));
+    }
+  }
+
+  _isDebug() {
+    try { return new URLSearchParams(window.location.search).get('debug') === '1'; }
+    catch (e) { return false; }
   }
 
   drawVignette(color, alpha) {
@@ -748,13 +781,16 @@ class GameScene extends Phaser.Scene {
 
   hitBurst(x, y, perfect) {
     const tint = perfect ? PWC.colors.perfect : 0xffffff;
+    const deg = this._degraded;
+    const burstCount = perfect ? (deg ? 10 : 22) : (deg ? 6 : 12);
+    const sparkCount = perfect ? (deg ? 6 : 14) : (deg ? 4 : 8);
     // Reconfigure pooled emitters per shot — config is mutable on the emitter.
     this.fxHit.particleTint = tint;
     this.fxHit.setParticleTint && this.fxHit.setParticleTint(tint);
-    this.fxHit.explode(perfect ? 22 : 12, x, y);
+    this.fxHit.explode(burstCount, x, y);
     this.fxSparks.particleTint = tint;
     this.fxSparks.setParticleTint && this.fxSparks.setParticleTint(tint);
-    this.fxSparks.explode(perfect ? 14 : 8, x, y);
+    this.fxSparks.explode(sparkCount, x, y);
   }
 
   perfectMoment(x, y) {
@@ -934,13 +970,12 @@ class GameScene extends Phaser.Scene {
     const toObj = Phaser.Display.Color.IntegerToColor(targetColor);
     const tween = { t: 0 };
     this.tweens.add({
-      targets: tween, t: 1, duration: 600, ease: 'Sine.easeInOut',
+      targets: tween, t: 1, duration: 500, ease: 'Sine.easeInOut',
       onUpdate: () => {
         const r = Phaser.Math.Linear(fromObj.red, toObj.red, tween.t);
         const g = Phaser.Math.Linear(fromObj.green, toObj.green, tween.t);
         const b = Phaser.Math.Linear(fromObj.blue, toObj.blue, tween.t);
-        const c = Phaser.Display.Color.GetColor(Math.round(r), Math.round(g), Math.round(b));
-        this.repaintCourt(c);
+        this.courtPanelImg.setTint(Phaser.Display.Color.GetColor(Math.round(r), Math.round(g), Math.round(b)));
       },
     });
   }

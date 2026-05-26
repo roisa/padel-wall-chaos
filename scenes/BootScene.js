@@ -157,6 +157,32 @@ class BootScene extends Phaser.Scene {
     gF.fillCircle(fSize / 2, fSize / 2, fSize / 2 - 22);
     gF.generateTexture('finger', fSize, fSize);
     gF.destroy();
+
+    // Court panel (baked) — drawn in white so it can be tinted per wave
+    // without re-stroking ~70 fills every frame.
+    const c = PWC.config.court;
+    const cw = (c.right - c.left) + 24;
+    const ch = (c.bottom - c.top) + 24;
+    const gCP = this.add.graphics();
+    gCP.fillStyle(0xffffff, 1);
+    gCP.fillRoundedRect(0, 0, cw, ch, 18);
+    gCP.generateTexture('court_panel', cw, ch);
+    gCP.destroy();
+
+    // Court lines layer (border + service line + baseline) — static white
+    const lw = c.right - c.left;
+    const lh = c.bottom - c.top;
+    const gCL = this.add.graphics();
+    gCL.lineStyle(2, 0xffffff, 0.22);
+    gCL.strokeRoundedRect(0, 0, lw, lh, 6);
+    for (let y = 24; y < lh - 24; y += 18) {
+      gCL.fillStyle(0xffffff, 0.07);
+      gCL.fillRect(lw / 2 - 1, y, 2, 8);
+    }
+    gCL.fillStyle(0xffffff, 0.05);
+    gCL.fillRect(0, lh - 1, lw, 2);
+    gCL.generateTexture('court_lines', lw, lh);
+    gCL.destroy();
   }
 }
 
