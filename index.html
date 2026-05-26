@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0e1d2a">
+  <meta name="color-scheme" content="dark">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta name="description" content="Padel Wall Chaos — a fast, stylish, one-thumb arcade reflex game.">
+  <meta name="format-detection" content="telephone=no">
+
+  <meta property="og:title" content="Padel Wall Chaos">
+  <meta property="og:description" content="A fast, stylish, one-thumb arcade reflex game.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Padel Wall Chaos">
+  <meta name="twitter:description" content="A fast, stylish, one-thumb arcade reflex game.">
+
+  <title>Padel Wall Chaos</title>
+
+  <!-- Inline SVG favicon — no asset request, no GitHub Pages 404 risk. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230e1d2a'/%3E%3Ccircle cx='32' cy='32' r='14' fill='%23d6ff3a'/%3E%3Ccircle cx='28' cy='28' r='5' fill='%23ffffff' opacity='0.7'/%3E%3C/svg%3E">
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230e1d2a'/%3E%3Ccircle cx='90' cy='90' r='40' fill='%23d6ff3a'/%3E%3Ccircle cx='80' cy='80' r='14' fill='%23ffffff' opacity='0.7'/%3E%3C/svg%3E">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="./style.css?v=0.95">
+</head>
+<body oncontextmenu="return false;">
+  <div id="game-wrap">
+    <div id="game"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/howler@2.2.4/dist/howler.min.js"></script>
+
+  <script src="./scenes/BootScene.js?v=0.95"></script>
+  <script src="./scenes/MenuScene.js?v=0.95"></script>
+  <script src="./scenes/GameScene.js?v=0.95"></script>
+  <script src="./scenes/UIScene.js?v=0.95"></script>
+  <script src="./scenes/GameOverScene.js?v=0.95"></script>
+  <script src="./game.js?v=0.95"></script>
+</body>
+</html>
