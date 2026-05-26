@@ -1,5 +1,16 @@
 // GameOverScene — death reveal, delta-to-best, REMATCH.
 // Designed so the next run is one tap away within ~1 second.
+//
+// FUTURE: replay highlight via MediaRecorder.
+//   Architecture sketch (not built in this sprint):
+//   1. GameScene maintains a 5-second rolling ring buffer of {ball.x, ball.y,
+//      racket.x, vy, events} sampled at 30Hz (~150 entries, ~6KB).
+//   2. On run:ended, the buffer is handed off in the payload.
+//   3. GameOverScene renders a "[ REPLAY ]" button next to REMATCH.
+//   4. On tap, a hidden Phaser scene replays the buffer onto a canvas while
+//      MediaRecorder captures `canvas.captureStream(30)` for ~5 seconds.
+//   5. The resulting Blob is offered via navigator.share (file) or download.
+//   No backend needed. The buffer is the entire payload.
 class GameOverScene extends Phaser.Scene {
   constructor() { super({ key: 'GameOverScene' }); }
 
@@ -19,18 +30,32 @@ class GameOverScene extends Phaser.Scene {
     // ---- Score reveal --------------------------------------------------
     const wasBest = !!d.wasBest;
     const scoreColor = wasBest ? C.perfectHex : C.textHex;
+    this.mode = d.mode || 'endless';
 
-    // Game-Over label
-    const goLabel = this.add.text(W / 2, H * 0.18, wasBest ? 'NEW BEST' : 'GAME OVER', {
+    // Title from PWC.titles — funny / flattering / earned line per run shape.
+    // In daily mode, the title sits below a "DAILY · CHAOS #N · TODAY" badge.
+    const titleLine = d.runTitle || (wasBest ? 'NEW BEST' : 'GAME OVER');
+    const goLabel = this.add.text(W / 2, H * 0.18, titleLine, {
       fontFamily: 'Space Grotesk, sans-serif',
-      fontSize: '34px',
+      fontSize: '38px',
       fontStyle: '700',
-      color: wasBest ? C.perfectHex : C.textDimHex,
+      color: wasBest ? C.perfectHex : C.textHex,
     }).setOrigin(0.5);
     goLabel.setLetterSpacing && goLabel.setLetterSpacing(8);
     goLabel.setAlpha(0).y = H * 0.18 - 16;
     gsap.to(goLabel, { alpha: 1, y: H * 0.18, duration: 0.5, delay: 0.1, ease: 'expo.out' });
     if (wasBest) goLabel.setShadow(0, 0, C.perfectHex, 16, true, true);
+
+    if (this.mode === 'daily' && d.daily) {
+      const dailyBadge = this.add.text(W / 2, H * 0.18 - 36,
+        `DAILY · CHAOS #${d.daily.dayNumber}${d.daily.wasTodayBest ? ' · TODAY’S NEW BEST' : ''}`,
+        {
+          fontFamily: 'Inter, sans-serif', fontSize: '13px', fontStyle: '600',
+          color: d.daily.wasTodayBest ? C.perfectHex : C.textDimHex,
+        }).setOrigin(0.5).setAlpha(0);
+      dailyBadge.setLetterSpacing && dailyBadge.setLetterSpacing(3);
+      gsap.to(dailyBadge, { alpha: 1, duration: 0.4, delay: 0.2 });
+    }
 
     // Big score
     const scoreObj = { v: 0 };
@@ -52,16 +77,29 @@ class GameOverScene extends Phaser.Scene {
       onUpdate: () => scoreText.setText(Math.round(scoreObj.v).toLocaleString()),
     });
 
-    const previousBest = d.previousBest || 0;
     let deltaText;
-    if (wasBest) {
-      const gap = d.score - previousBest;
-      deltaText = previousBest > 0 ? `+${gap.toLocaleString()} vs old best` : 'a new high';
-    } else if (previousBest > 0) {
-      const diff = previousBest - d.score;
-      deltaText = diff > 0 ? `${diff.toLocaleString()} from best` : 'matched best';
+    if (this.mode === 'daily' && d.daily) {
+      // Daily mode: compare against today's best (more relevant than all-time)
+      const pTB = d.daily.previousTodayBest || 0;
+      if (d.daily.wasTodayBest) {
+        deltaText = pTB > 0 ? `+${(d.score - pTB).toLocaleString()} vs today’s best` : 'first run today';
+      } else if (pTB > 0) {
+        const diff = pTB - d.score;
+        deltaText = diff > 0 ? `${diff.toLocaleString()} from today’s best` : 'tied today’s best';
+      } else {
+        deltaText = 'first run today';
+      }
     } else {
-      deltaText = 'first run';
+      const previousBest = d.previousBest || 0;
+      if (wasBest) {
+        const gap = d.score - previousBest;
+        deltaText = previousBest > 0 ? `+${gap.toLocaleString()} vs old best` : 'a new high';
+      } else if (previousBest > 0) {
+        const diff = previousBest - d.score;
+        deltaText = diff > 0 ? `${diff.toLocaleString()} from best` : 'matched best';
+      } else {
+        deltaText = 'first run';
+      }
     }
 
     const deltaLabel = this.add.text(W / 2, H * 0.41, deltaText, {
@@ -205,11 +243,12 @@ class GameOverScene extends Phaser.Scene {
   rematch() {
     this.transitioning = true;
     PWC.audio.uiConfirm();
-    this.cameras.main.fadeOut(250, 14, 29, 42);
+    this.cameras.main.fadeOut(220, 14, 29, 42);
     this.cameras.main.once('camerafadeoutcomplete', () => {
       this.scene.stop('UIScene');
       this.scene.stop('GameScene');
-      this.scene.start('GameScene');
+      // Skip intro on rematch — keeps the 1.5s "death to playable" target.
+      this.scene.start('GameScene', { mode: this.mode, skipIntro: true });
     });
   }
 

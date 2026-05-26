@@ -76,71 +76,71 @@ class MenuScene extends Phaser.Scene {
     gsap.to(title2, { alpha: 1, scale: 1, duration: 0.6, delay: 0.12, ease: 'back.out(1.6)' });
     gsap.to(tag, { alpha: 1, duration: 0.5, delay: 0.5 });
 
-    // PLAY button --------------------------------------------------------
-    const btnY = H - 360;
-    const btnW = 360, btnH = 110;
+    // DAILY CHAOS button (primary) --------------------------------------
+    this.transitioning = false;
+    const dayNum = PWC.daily.dayNumber();
+    const todayBest = PWC.daily.todayBest();
+    const dailyY = H - 420;
+    const dailyW = 380, dailyH = 130;
+
+    const dailyGroup = this.add.container(W / 2, dailyY);
+    const dailyGlow = this.add.image(0, 0, 'glow').setScale(5.4, 2.8).setAlpha(0.35).setTint(C.perfect).setBlendMode('ADD');
+    const dailyBg = this.add.graphics();
+    dailyBg.fillStyle(0xffffff, 1);
+    dailyBg.fillRoundedRect(-dailyW / 2, -dailyH / 2, dailyW, dailyH, dailyH / 2);
+    const dailyTop = this.add.text(0, -22, 'TODAY’S CHAOS', {
+      fontFamily: 'Space Grotesk, sans-serif', fontSize: '32px', fontStyle: '700', color: C.bgHex,
+    }).setOrigin(0.5);
+    dailyTop.setLetterSpacing && dailyTop.setLetterSpacing(4);
+    const dailySub = this.add.text(0, 22, `· chaos #${dayNum} ·`, {
+      fontFamily: 'Inter, sans-serif', fontSize: '16px', fontStyle: '600', color: C.bgHex,
+    }).setOrigin(0.5).setAlpha(0.7);
+    dailySub.setLetterSpacing && dailySub.setLetterSpacing(3);
+    dailyGroup.add([dailyGlow, dailyBg, dailyTop, dailySub]);
+    gsap.to(dailyGlow, { alpha: 0.55, scaleX: 5.8, scaleY: 3.1, duration: 1.4, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+
+    const dailyHit = this.add.zone(W / 2, dailyY, dailyW + 80, dailyH + 60).setInteractive({ useHandCursor: true });
+    this.attachButton(dailyHit, dailyGroup, () => this.startGame('daily'));
+
+    // Today's best badge ------------------------------------------------
+    if (todayBest > 0) {
+      const tBadge = this.add.text(W / 2, dailyY + 95, `today's best  ${todayBest.toLocaleString()}`, {
+        fontFamily: 'Inter, sans-serif', fontSize: '15px', fontStyle: '500', color: C.perfectHex,
+      }).setOrigin(0.5).setAlpha(0);
+      gsap.to(tBadge, { alpha: 0.9, duration: 0.5, delay: 0.5 });
+    } else {
+      const tBadge = this.add.text(W / 2, dailyY + 95, 'be the first to play today', {
+        fontFamily: 'Inter, sans-serif', fontSize: '14px', fontStyle: '500', color: C.textDimHex,
+      }).setOrigin(0.5).setAlpha(0);
+      gsap.to(tBadge, { alpha: 0.7, duration: 0.5, delay: 0.5 });
+    }
+
+    // ENDLESS button (secondary) ----------------------------------------
+    const btnY = H - 230;
+    const btnW = 300, btnH = 84;
     const playGroup = this.add.container(W / 2, btnY);
 
-    const btnGlow = this.add.image(0, 0, 'glow').setScale(5, 2.4).setAlpha(0.35).setTint(C.ball).setBlendMode('ADD');
     const btnBg = this.add.graphics();
-    btnBg.fillStyle(0xffffff, 1);
+    btnBg.lineStyle(2, 0xffffff, 0.4);
+    btnBg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, btnH / 2);
+    btnBg.fillStyle(0xffffff, 0.04);
     btnBg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, btnH / 2);
-    const btnText = this.add.text(0, -2, 'PLAY', {
-      fontFamily: 'Space Grotesk, sans-serif',
-      fontSize: '48px',
-      fontStyle: '700',
-      color: C.bgHex,
+    const btnText = this.add.text(0, -1, 'ENDLESS', {
+      fontFamily: 'Space Grotesk, sans-serif', fontSize: '30px', fontStyle: '600', color: C.textHex,
     }).setOrigin(0.5);
-    btnText.setLetterSpacing && btnText.setLetterSpacing(6);
-    playGroup.add([btnGlow, btnBg, btnText]);
+    btnText.setLetterSpacing && btnText.setLetterSpacing(5);
+    playGroup.add([btnBg, btnText]);
 
-    // Idle pulse on the play button glow
-    gsap.to(btnGlow, { alpha: 0.55, scaleX: 5.4, scaleY: 2.7, duration: 1.4, yoyo: true, repeat: -1, ease: 'sine.inOut' });
+    const hitZone = this.add.zone(W / 2, btnY, btnW + 80, btnH + 60).setInteractive({ useHandCursor: true });
+    this.attachButton(hitZone, playGroup, () => this.startGame('endless'));
 
-    // Hit area
-    this.transitioning = false;
-    const hitZone = this.add.zone(W / 2, btnY, btnW + 80, btnH + 80).setInteractive({ useHandCursor: true });
-
-    let pressed = false;
-    hitZone.on('pointerdown', () => {
-      if (this.transitioning) return;
-      pressed = true;
-      PWC.audio.unlock();
-      PWC.audio.uiTick();
-      gsap.to(playGroup, { scale: 0.94, duration: 0.08, ease: 'power2.out' });
-    });
-    hitZone.on('pointerout', () => {
-      if (pressed) { pressed = false; gsap.to(playGroup, { scale: 1, duration: 0.12 }); }
-    });
-    hitZone.on('pointerup', () => {
-      if (!pressed || this.transitioning) return;
-      pressed = false;
-      this.startGame();
-    });
-
-    // Personal best badge -----------------------------------------------
+    // All-time best badge under the endless button ----------------------
     const best = PWC.storage.get('best') || 0;
     if (best > 0) {
-      const badge = this.add.container(W / 2, btnY + 100);
-      const badgeBg = this.add.graphics();
-      badgeBg.fillStyle(0xffffff, 0.06);
-      badgeBg.fillRoundedRect(-90, -20, 180, 40, 20);
-      const bestLabel = this.add.text(-60, 0, 'BEST', {
-        fontFamily: 'Inter, sans-serif',
-        fontSize: '14px',
-        fontStyle: '600',
-        color: C.textDimHex,
-      }).setOrigin(0, 0.5);
-      bestLabel.setLetterSpacing && bestLabel.setLetterSpacing(2);
-      const bestVal = this.add.text(70, 0, best.toLocaleString(), {
-        fontFamily: 'Space Grotesk, sans-serif',
-        fontSize: '20px',
-        fontStyle: '600',
-        color: C.textHex,
-      }).setOrigin(1, 0.5);
-      badge.add([badgeBg, bestLabel, bestVal]);
-      badge.setAlpha(0);
-      gsap.to(badge, { alpha: 1, duration: 0.5, delay: 0.5 });
+      const badge = this.add.text(W / 2, btnY + 70, `all-time best  ${best.toLocaleString()}`, {
+        fontFamily: 'Inter, sans-serif', fontSize: '14px', fontStyle: '500', color: C.textDimHex,
+      }).setOrigin(0.5).setAlpha(0);
+      gsap.to(badge, { alpha: 0.85, duration: 0.5, delay: 0.6 });
     }
 
     // Sound toggle -------------------------------------------------------
@@ -160,7 +160,7 @@ class MenuScene extends Phaser.Scene {
     });
 
     // Hint at the bottom
-    const hint = this.add.text(W / 2, H - 80, 'tap to swing  ·  drag to position', {
+    const hint = this.add.text(W / 2, H - 80, 'drag to move  ·  release to hit', {
       fontFamily: 'Inter, sans-serif',
       fontSize: '16px',
       color: C.textDimHex,
@@ -173,12 +173,31 @@ class MenuScene extends Phaser.Scene {
     PWC.audio.setEnabled(PWC.storage.get('soundOn') !== false);
   }
 
-  startGame() {
+  attachButton(zone, group, onActivate) {
+    let pressed = false;
+    zone.on('pointerdown', () => {
+      if (this.transitioning) return;
+      pressed = true;
+      PWC.audio.unlock();
+      PWC.audio.uiTick();
+      gsap.to(group, { scale: 0.94, duration: 0.08, ease: 'power2.out' });
+    });
+    zone.on('pointerout', () => {
+      if (pressed) { pressed = false; gsap.to(group, { scale: 1, duration: 0.12 }); }
+    });
+    zone.on('pointerup', () => {
+      if (!pressed || this.transitioning) return;
+      pressed = false;
+      onActivate();
+    });
+  }
+
+  startGame(mode) {
     this.transitioning = true;
     PWC.audio.uiConfirm();
-    this.cameras.main.fadeOut(280, 14, 29, 42);
+    this.cameras.main.fadeOut(260, 14, 29, 42);
     this.cameras.main.once('camerafadeoutcomplete', () => {
-      this.scene.start('GameScene');
+      this.scene.start('GameScene', { mode });
     });
   }
 

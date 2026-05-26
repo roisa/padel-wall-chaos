@@ -131,6 +131,32 @@ class BootScene extends Phaser.Scene {
     gPx.fillRect(0, 0, 1, 1);
     gPx.generateTexture('pixel', 1, 1);
     gPx.destroy();
+
+    // Target marker (concentric thin rings — the predictive aim cue) ----
+    const tSize = 80;
+    const gT = this.add.graphics();
+    gT.lineStyle(3, 0xffffff, 1);
+    gT.strokeCircle(tSize / 2, tSize / 2, tSize / 2 - 4);
+    gT.lineStyle(2, 0xffffff, 0.55);
+    gT.strokeCircle(tSize / 2, tSize / 2, tSize / 2 - 14);
+    // Center crosshair tick
+    gT.fillStyle(0xffffff, 1);
+    gT.fillRect(tSize / 2 - 1, tSize / 2 - 8, 2, 16);
+    gT.fillRect(tSize / 2 - 8, tSize / 2 - 1, 16, 2);
+    gT.generateTexture('target', tSize, tSize);
+    gT.destroy();
+
+    // Touch hint (animated finger silhouette — simple circle with arrow)
+    const fSize = 80;
+    const gF = this.add.graphics();
+    gF.fillStyle(0xffffff, 0.85);
+    gF.fillCircle(fSize / 2, fSize / 2, fSize / 2 - 8);
+    gF.fillStyle(0x0e1d2a, 1);
+    gF.fillCircle(fSize / 2, fSize / 2, fSize / 2 - 14);
+    gF.fillStyle(0xffffff, 0.95);
+    gF.fillCircle(fSize / 2, fSize / 2, fSize / 2 - 22);
+    gF.generateTexture('finger', fSize, fSize);
+    gF.destroy();
   }
 }
 

@@ -3,10 +3,16 @@
 class UIScene extends Phaser.Scene {
   constructor() { super({ key: 'UIScene' }); }
 
+  init(data) {
+    this.mode = (data && data.mode) || 'endless';
+    this.dayNumber = (data && data.dayNumber) || 0;
+  }
+
   create() {
     const W = this.scale.width, H = this.scale.height;
     const C = PWC.colors;
     this.W = W; this.H = H;
+    this._gsapTweens = [];
 
     // Top bar: lives + wave + score + best line --------------------------
     this.topBar = this.add.container(0, 0);
@@ -23,15 +29,27 @@ class UIScene extends Phaser.Scene {
     }
     this.topBar.add(this.livesContainer);
 
-    // Wave label (top-center)
-    this.waveLabel = this.add.text(W / 2, 50, 'WAVE 1', {
+    // Wave label / daily badge (top-center)
+    const initialLabel = this.mode === 'daily' ? `DAILY · CHAOS #${this.dayNumber}` : 'WAVE 1';
+    const labelColor = this.mode === 'daily' ? C.perfectHex : C.waveHex;
+    this.waveLabel = this.add.text(W / 2, 50, initialLabel, {
       fontFamily: 'Space Grotesk, sans-serif',
-      fontSize: '20px',
+      fontSize: this.mode === 'daily' ? '18px' : '20px',
       fontStyle: '600',
-      color: C.waveHex,
+      color: labelColor,
     }).setOrigin(0.5);
     this.waveLabel.setLetterSpacing && this.waveLabel.setLetterSpacing(4);
     this.topBar.add(this.waveLabel);
+
+    // Sub-line: in daily mode, show "today's best"
+    if (this.mode === 'daily') {
+      const tBest = PWC.daily.todayBest();
+      this.dailySubLabel = this.add.text(W / 2, 74, tBest > 0 ? `today’s best  ${tBest.toLocaleString()}` : 'fresh canvas', {
+        fontFamily: 'Inter, sans-serif', fontSize: '12px', color: C.textDimHex,
+      }).setOrigin(0.5);
+      this.dailySubLabel.setLetterSpacing && this.dailySubLabel.setLetterSpacing(2);
+      this.topBar.add(this.dailySubLabel);
+    }
 
     // Wave progress arc / pips
     this.wavePips = this.add.container(W / 2, 88);
@@ -97,17 +115,27 @@ class UIScene extends Phaser.Scene {
     this.comboBar = this.add.graphics();
     this._comboBarFill = 0;
 
-    // Listen to events ---------------------------------------------------
-    this.game.events.on('score:changed', this.onScoreChanged, this);
-    this.game.events.on('combo:changed', this.onComboChanged, this);
-    this.game.events.on('combo:tierUp', this.onTierUp, this);
-    this.game.events.on('combo:broken', this.onComboBroken, this);
-    this.game.events.on('life:lost', this.onLifeLost, this);
-    this.game.events.on('wave:advanced', this.onWaveAdvanced, this);
-    this.game.events.on('triplePerfect', this.onTriplePerfect, this);
-    this.game.events.on('run:ended', this.onRunEnded, this);
+    // Pool: score popups (6) and banners (2)
+    this.poolPopup = new PWC.Pool(() => {
+      const t = this.add.text(0, 0, '', {
+        fontFamily: 'Space Grotesk, sans-serif', fontSize: '32px', fontStyle: '700', color: C.textHex,
+      }).setOrigin(0.5).setDepth(70).setVisible(false);
+      return t;
+    }, 6);
 
-    this.events.on('shutdown', () => this.detachListeners());
+    // Listen to events ---------------------------------------------------
+    const E = PWC.events;
+    this.game.events.on(E.SCORE_CHANGED, this.onScoreChanged, this);
+    this.game.events.on(E.COMBO_CHANGED, this.onComboChanged, this);
+    this.game.events.on(E.COMBO_TIER_UP, this.onTierUp, this);
+    this.game.events.on(E.COMBO_BROKEN, this.onComboBroken, this);
+    this.game.events.on(E.LIFE_LOST, this.onLifeLost, this);
+    this.game.events.on(E.WAVE_ADVANCED, this.onWaveAdvanced, this);
+    this.game.events.on(E.TRIPLE_PERFECT, this.onTriplePerfect, this);
+    this.game.events.on(E.RUN_ENDED, this.onRunEnded, this);
+    this.game.events.on(E.ALMOST_PB, this.onAlmostPB, this);
+
+    this.events.on('shutdown', () => this.shutdown());
 
     // Initial wave pips
     this.drawWavePips(1);
@@ -120,15 +148,20 @@ class UIScene extends Phaser.Scene {
     this._displayedScore = 0;
   }
 
-  detachListeners() {
-    this.game.events.off('score:changed', this.onScoreChanged, this);
-    this.game.events.off('combo:changed', this.onComboChanged, this);
-    this.game.events.off('combo:tierUp', this.onTierUp, this);
-    this.game.events.off('combo:broken', this.onComboBroken, this);
-    this.game.events.off('life:lost', this.onLifeLost, this);
-    this.game.events.off('wave:advanced', this.onWaveAdvanced, this);
-    this.game.events.off('triplePerfect', this.onTriplePerfect, this);
-    this.game.events.off('run:ended', this.onRunEnded, this);
+  shutdown() {
+    const E = PWC.events;
+    this.game.events.off(E.SCORE_CHANGED, this.onScoreChanged, this);
+    this.game.events.off(E.COMBO_CHANGED, this.onComboChanged, this);
+    this.game.events.off(E.COMBO_TIER_UP, this.onTierUp, this);
+    this.game.events.off(E.COMBO_BROKEN, this.onComboBroken, this);
+    this.game.events.off(E.LIFE_LOST, this.onLifeLost, this);
+    this.game.events.off(E.WAVE_ADVANCED, this.onWaveAdvanced, this);
+    this.game.events.off(E.TRIPLE_PERFECT, this.onTriplePerfect, this);
+    this.game.events.off(E.RUN_ENDED, this.onRunEnded, this);
+    this.game.events.off(E.ALMOST_PB, this.onAlmostPB, this);
+    if (this.poolPopup) this.poolPopup.destroyAll();
+    if (this._scoreCounterTween) this._scoreCounterTween.kill();
+    if (this._almostPulse) this._almostPulse.kill();
   }
 
   drawHeart(g, x, y, size, color) {
@@ -169,40 +202,54 @@ class UIScene extends Phaser.Scene {
 
   // ---------- EVENT HANDLERS ----------------------------------------------
   onScoreChanged({ score, gained, x, y, perfect }) {
-    // Animated score counter
-    const target = score;
-    const start = this._displayedScore;
-    const dur = 0.4;
-    const obj = { v: start };
-    gsap.to(obj, {
-      v: target,
-      duration: dur,
-      ease: 'expo.out',
+    // Single persistent counter tween — kills the previous to avoid races.
+    if (this._scoreCounterTween) this._scoreCounterTween.kill();
+    const obj = this._scoreCounterObj || (this._scoreCounterObj = { v: this._displayedScore });
+    this._scoreCounterTween = gsap.to(obj, {
+      v: score, duration: 0.35, ease: 'expo.out',
       onUpdate: () => {
         this._displayedScore = Math.round(obj.v);
         this.scoreText.setText(this._displayedScore.toLocaleString());
       },
     });
 
-    // Score popup at hit point
-    const popup = this.add.text(x, y, `+${gained}`, {
-      fontFamily: 'Space Grotesk, sans-serif',
-      fontSize: perfect ? '40px' : '30px',
-      fontStyle: '700',
-      color: perfect ? PWC.colors.perfectHex : PWC.colors.textHex,
-    }).setOrigin(0.5).setDepth(70);
-    popup.setShadow(0, 0, perfect ? PWC.colors.perfectHex : PWC.colors.textHex, 12, true, true);
+    // Pooled score popup at hit point
+    const color = perfect ? PWC.colors.perfectHex : PWC.colors.textHex;
+    const popup = this.poolPopup.acquire();
+    popup.setText(`+${gained}`)
+         .setPosition(x, y)
+         .setVisible(true)
+         .setAlpha(1)
+         .setScale(0.4)
+         .setStyle({ fontSize: perfect ? '40px' : '30px', color })
+         .setShadow(0, 0, color, 12, true, true);
     gsap.to(popup, {
-      y: y - 80,
-      alpha: 0,
-      duration: 0.7,
-      ease: 'expo.out',
-      onComplete: () => popup.destroy(),
+      y: y - 80, alpha: 0, duration: 0.65, ease: 'expo.out',
+      onComplete: () => { popup.setVisible(false); this.poolPopup.release(popup); },
     });
-    gsap.fromTo(popup, { scale: 0.4 }, { scale: 1.0, duration: 0.25, ease: 'back.out(2)' });
+    gsap.fromTo(popup, { scale: 0.4 }, { scale: 1.0, duration: 0.22, ease: 'back.out(2)', overwrite: 'auto' });
 
     // Score text bloom
-    gsap.fromTo(this.scoreText, { scale: 1.0 }, { scale: 1.08, duration: 0.12, yoyo: true, repeat: 1, ease: 'power2.out' });
+    gsap.fromTo(this.scoreText, { scale: 1.0 }, { scale: 1.08, duration: 0.12, yoyo: true, repeat: 1, ease: 'power2.out', overwrite: 'auto' });
+  }
+
+  onAlmostPB({ score, best }) {
+    // Pulsing "ALMOST!" banner near the score, with a tension audio (fired
+    // by GameScene). Communicates "you're close — push it."
+    if (this._almostLabel) return; // single-fire per run
+    const x = this.W - 40;
+    const y = 96;
+    this._almostLabel = this.add.text(x, y, 'ALMOST!', {
+      fontFamily: 'Space Grotesk, sans-serif', fontSize: '16px', fontStyle: '700',
+      color: PWC.colors.almostHex,
+    }).setOrigin(1, 0);
+    this._almostLabel.setLetterSpacing && this._almostLabel.setLetterSpacing(3);
+    this._almostLabel.setShadow(0, 0, PWC.colors.almostHex, 8, true, true);
+    this._almostLabel.setAlpha(0);
+    gsap.to(this._almostLabel, { alpha: 1, duration: 0.2 });
+    this._almostPulse = gsap.to(this._almostLabel, {
+      scale: 1.18, duration: 0.55, yoyo: true, repeat: -1, ease: 'sine.inOut',
+    });
   }
 
   onComboChanged({ combo, tier, tierUp, perfect }) {
@@ -257,19 +304,8 @@ class UIScene extends Phaser.Scene {
 
   onComboBroken({ lost, tier, x, y }) {
     if (lost === 0) return;
-    // Explode combo into particles drifting toward HUD
-    const emitter = this.add.particles(x, y, 'particle', {
-      speed: { min: 100, max: 300 },
-      angle: { min: 0, max: 360 },
-      lifespan: { min: 500, max: 900 },
-      scale: { start: 1, end: 0 },
-      alpha: { start: 1, end: 0 },
-      tint: PWC.colors.danger,
-      blendMode: 'ADD',
-      emitting: false,
-    });
-    emitter.explode(Math.min(30, 6 + lost * 2), x, y);
-    this.time.delayedCall(1200, () => emitter.destroy());
+    // Particles for the break are spawned by GameScene's pooled fxBreak
+    // emitter — UIScene only owns the HUD reaction below.
 
     // Combo text shake-collapse
     gsap.to(this.comboValue, {

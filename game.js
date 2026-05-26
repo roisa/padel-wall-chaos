@@ -18,23 +18,30 @@ PWC.config = {
     y: 1020,
     width: 150,
     height: 20,
-    lerp: 0.22,
-    hitZoneHeight: 110,
+    // Drag/release input: racket snaps near finger (snap-with-trail).
+    followSnapPx: 6,        // racket teleports if finger is further than this
+    followLerp: 0.55,       // otherwise lerps fast
+    // Spatial hit grading. Sweet spot is X px above racket center.
+    sweetSpotOffsetY: -28,
+    perfectBandPx: 18,      // ±Y from sweet spot for perfect
+    goodBandPx: 56,         // ±Y from sweet spot for good
+    xToleranceExtraPx: 8,   // extra X slack beyond racket half-width
   },
 
   ball: {
     radius: 16,
     baseSpeed: 360,
-    speedCap: 1080,
+    speedCap: 1100,
     perBounceMul: 1.035,
     perReturnMul: 1.07,
-    serveTelegraphMs: 360,
+    serveTelegraphMs: 280,
   },
 
-  swing: {
-    windowMs: 130,
-    perfectWindowMs: 60,
-    cooldownMs: 90,
+  onboarding: {
+    warmupServes: 2,
+    warmupSpeedMul: 0.55,
+    warmupTelegraphMs: 480,
+    firstRunTutorialMs: 4200,
   },
 
   difficulty: {
@@ -43,23 +50,47 @@ PWC.config = {
     mercyMisses: 2,
     mercyWindow: 5,
     mercyDurationReturns: 3,
-    mercySpeedMul: 0.92,
+    mercySpeedMul: 0.94,
   },
 
   combo: {
-    multTable: [1.0, 1.0, 1.0, 1.2, 1.4, 1.6, 1.9, 2.3, 2.7, 3.2, 3.8, 4.5, 5.3, 6.2, 7.2],
+    // Front-loaded curve so even short streaks feel rewarding.
+    multTable: [1.0, 1.1, 1.25, 1.45, 1.7, 2.0, 2.4, 2.9, 3.5, 4.2, 5.0, 5.9, 6.9, 8.0, 9.2],
     tierAt: [0, 3, 6, 10, 15, 20, 30],
     tierLabels: ['', 'NICE', 'HOT', 'BLAZING', 'INSANE', 'ON FIRE', 'CHAOS'],
   },
 
   scoring: {
     basePerHit: 100,
-    perfectBonus: 250,
+    perfectBonus: 350,
+  },
+
+  modifiers: {
+    curveball: {
+      startWave: 4,
+      chance: 0.30,         // chance a serve becomes a curveball
+      amplitude: 110,       // px lateral perturbation
+      frequency: 0.0025,    // rad/ms
+      tint: 0xff6fb5,
+    },
+    surge: {
+      startWave: 6,
+      chance: 0.25,
+      speedMul: 1.30,
+      tint: 0xffb13a,
+    },
+  },
+
+  escalation: {
+    // Court ambient tint shifts per wave bucket (hex). Subtle.
+    courtTintByWave: [0x14283a, 0x14283a, 0x182c40, 0x1c2e44, 0x222e46, 0x2a2c48, 0x322748, 0x381f44, 0x3c1840],
+    crowdEnterAtCombo: 6,
   },
 
   lives: 3,
 
   nearMissPx: 70,
+  almostBestPct: 0.85,      // show "ALMOST!" tension once score ≥ 85% of PB
 };
 
 PWC.colors = {
@@ -81,6 +112,152 @@ PWC.colors = {
   textDimHex: '#93a4b2',
   wave: 0xffd166,
   waveHex: '#ffd166',
+  curve: 0xff6fb5,
+  curveHex: '#ff6fb5',
+  surge: 0xffb13a,
+  surgeHex: '#ffb13a',
+  almost: 0xffd166,
+  almostHex: '#ffd166',
+};
+
+// ----- Centralized event names ------------------------------------------
+PWC.events = {
+  SCORE_CHANGED: 'score:changed',
+  COMBO_CHANGED: 'combo:changed',
+  COMBO_TIER_UP: 'combo:tierUp',
+  COMBO_BROKEN: 'combo:broken',
+  LIFE_LOST: 'life:lost',
+  WAVE_ADVANCED: 'wave:advanced',
+  TRIPLE_PERFECT: 'triplePerfect',
+  RUN_ENDED: 'run:ended',
+  ALMOST_PB: 'almost:pb',          // fired once when score ≥ almostBestPct of PB
+  ONBOARDING_HINT: 'onboarding:hint',
+};
+
+// ----- Seeded PRNG (mulberry32) -----------------------------------------
+// Used for daily-mode determinism so every player faces the same chaos.
+PWC.rng = {
+  _state: 0,
+
+  seed(intSeed) {
+    this._state = (intSeed >>> 0) || 1;
+  },
+
+  next() {
+    let t = (this._state += 0x6D2B79F5) >>> 0;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  },
+
+  between(min, max) { return min + this.next() * (max - min); },
+  intBetween(min, max) { return Math.floor(this.between(min, max + 1)); },
+  pick(arr) { return arr[Math.floor(this.next() * arr.length)]; },
+};
+
+// ----- Daily challenge --------------------------------------------------
+// Day #1 = the launch date. Today's number = days since launch + 1.
+PWC.daily = {
+  launchDateISO: '2026-05-26',
+
+  todayISO() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  },
+
+  seedFor(iso) {
+    // YYYYMMDD as integer
+    return parseInt(iso.replace(/-/g, ''), 10);
+  },
+
+  dayNumber(iso = null) {
+    const today = new Date(iso || this.todayISO());
+    const launch = new Date(this.launchDateISO);
+    const days = Math.floor((today - launch) / 86400000);
+    return Math.max(1, days + 1);
+  },
+
+  // Today's best score for daily mode
+  todayBest() {
+    const iso = this.todayISO();
+    const all = PWC.storage.get('daily') || {};
+    return (all[iso] && all[iso].best) || 0;
+  },
+
+  recordTodayRun(score, longestCombo, perfects) {
+    const iso = this.todayISO();
+    const all = PWC.storage.get('daily') || {};
+    const cur = all[iso] || { best: 0, bestCombo: 0, runs: 0 };
+    cur.runs += 1;
+    if (score > cur.best) cur.best = score;
+    if (longestCombo > cur.bestCombo) cur.bestCombo = longestCombo;
+    all[iso] = cur;
+    // Prune anything older than 30 days
+    const cutoff = Date.now() - 30 * 86400000;
+    Object.keys(all).forEach(k => {
+      if (new Date(k).getTime() < cutoff) delete all[k];
+    });
+    PWC.storage.set('daily', all);
+    return cur;
+  },
+
+  isNewTodayBest(score) {
+    return score > this.todayBest();
+  },
+};
+
+// ----- Generic object pool ----------------------------------------------
+// Used to recycle GameObjects (text, sprites) so the hot path doesn't
+// allocate. Pools are per-scene because Phaser GameObjects die with scenes.
+PWC.Pool = class {
+  constructor(factory, initial = 4) {
+    this.factory = factory;
+    this.free = [];
+    this.used = new Set();
+    for (let i = 0; i < initial; i++) this.free.push(factory());
+  }
+  acquire() {
+    let obj = this.free.pop();
+    if (!obj) obj = this.factory();
+    this.used.add(obj);
+    return obj;
+  }
+  release(obj) {
+    if (!this.used.delete(obj)) return;
+    this.free.push(obj);
+  }
+  destroyAll() {
+    this.free.forEach(o => o && o.destroy && o.destroy());
+    this.used.forEach(o => o && o.destroy && o.destroy());
+    this.free = [];
+    this.used.clear();
+  }
+};
+
+// ----- End-of-run title generator ---------------------------------------
+// Picks a flattering / funny title based on the run shape.
+PWC.titles = {
+  pick(stats) {
+    // stats: { score, longestCombo, perfects, wave, wasBest, wallBounces, totalReturns }
+    const T = [
+      // ordered by specificity — first match wins
+      { cond: s => s.perfects >= 10,                       text: 'PURE PRECISION' },
+      { cond: s => s.longestCombo >= 30,                   text: 'UNSTOPPABLE' },
+      { cond: s => s.wasBest && s.perfects >= 5,           text: 'NEW LEGEND' },
+      { cond: s => s.wasBest,                              text: 'NEW BEST' },
+      { cond: s => s.longestCombo >= 20,                   text: 'COMBO MACHINE' },
+      { cond: s => s.perfects >= 5,                        text: 'CLEAN STRIKER' },
+      { cond: s => s.wave >= 8,                            text: 'WALL DEFENDER' },
+      { cond: s => s.longestCombo >= 10,                   text: 'IN THE ZONE' },
+      { cond: s => s.wave >= 5,                            text: 'CHAOS SURVIVOR' },
+      { cond: s => s.perfects >= 2,                        text: 'NICE TOUCH' },
+      { cond: s => s.totalReturns >= 10,                   text: 'RALLY KEEPER' },
+      { cond: s => s.totalReturns >= 3,                    text: 'WARMED UP' },
+      { cond: s => true,                                   text: 'GAME OVER' },
+    ];
+    for (const t of T) if (t.cond(stats)) return t.text;
+    return 'GAME OVER';
+  },
 };
 
 PWC.motion = {
@@ -115,6 +292,8 @@ PWC.storage = {
     this.data.bestPerfects = this.data.bestPerfects || 0;
     this.data.runs = this.data.runs || 0;
     this.data.soundOn = this.data.soundOn !== false;
+    this.data.hasPlayed = !!this.data.hasPlayed;
+    this.data.daily = this.data.daily || {};
     return this.data;
   },
 
@@ -271,6 +450,21 @@ PWC.audio = {
       this._envOsc({ freq: f, type: 'sawtooth', dur: 0.45, peak: 0.18 });
     });
     setTimeout(() => this.perfect(), 200);
+  },
+
+  // Soft crowd "woo" — bandpass-swept noise. Use sparingly on tier-ups.
+  crowd(intensity = 1) {
+    this._noise({ dur: 0.55 * intensity, peak: 0.10 + intensity * 0.05, filter: 600, q: 0.8, sweep: 1800 });
+  },
+
+  // Short, tense rising tone — for "almost PB" moments.
+  tension() {
+    this._envOsc({ freq: 440, type: 'sine', dur: 0.45, peak: 0.16, sweepTo: 880, attack: 0.02 });
+  },
+
+  // Single-shot whiff (player swung but missed) — very subtle.
+  whiff() {
+    this._noise({ dur: 0.06, peak: 0.06, filter: 1200, q: 1 });
   },
 
   duck(amount = 0.4, dur = 0.4) {
